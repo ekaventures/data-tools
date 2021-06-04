@@ -1,4 +1,3 @@
-from hamish_scraper import scrape_trustpilot_reviews
 import streamlit as st
 import pandas as pd
 from datetime import datetime as dt
@@ -12,9 +11,132 @@ import random
 import time
 import json
 import numpy as np
-from keyword_analyser import analyse_words, most_common_bigrams, most_common_keywords, most_common_trigrams
+import re
+import nltk
+nltk.download('stopwords')
+nltk.download('wordnet')
+from nltk.corpus import stopwords
+from nltk.stem.porter import PorterStemmer 
+from nltk.tokenize import RegexpTokenizer
+from nltk.stem.wordnet import WordNetLemmatizer
+from sklearn.feature_extraction.text import CountVectorizer
+import seaborn as sns
 
-#Function to download results
+# Create a list of stop words from nltk
+
+stop_words = set(stopwords.words("english"))
+other_stop_words = ['pay','current','month','much','per','need','get']
+stop_words = stop_words.union(other_stop_words)
+
+# View most frequently occuring keywords
+
+def get_top_n_words(corpus, n=None):
+    vec = CountVectorizer().fit(corpus)
+    bag_of_words = vec.transform(corpus)
+    sum_words = bag_of_words.sum(axis=0) 
+    words_freq = [(word, sum_words[0, idx]) for word, idx in      
+                   vec.vocabulary_.items()]
+    words_freq =sorted(words_freq, key = lambda x: x[1], 
+                       reverse=True)
+    return words_freq[:n]
+
+# Most frequently occuring bigrams
+
+def get_top_n2_words(corpus, n=None):
+    vec1 = CountVectorizer(ngram_range=(2,2),  
+            max_features=2000).fit(corpus)
+    bag_of_words = vec1.transform(corpus)
+    sum_words = bag_of_words.sum(axis=0) 
+    words_freq = [(word, sum_words[0, idx]) for word, idx in     
+                  vec1.vocabulary_.items()]
+    words_freq =sorted(words_freq, key = lambda x: x[1], 
+                reverse=True)
+    return words_freq[:n]
+
+# Most frequently occuring Tri-grams
+
+def get_top_n3_words(corpus, n=None):
+    vec1 = CountVectorizer(ngram_range=(3,3), 
+           max_features=2000).fit(corpus)
+    bag_of_words = vec1.transform(corpus)
+    sum_words = bag_of_words.sum(axis=0) 
+    words_freq = [(word, sum_words[0, idx]) for word, idx in     
+                  vec1.vocabulary_.items()]
+    words_freq =sorted(words_freq, key = lambda x: x[1], 
+                reverse=True)
+    return words_freq[:n]
+
+# Analyse the words
+
+def analyse_words(df_input):
+
+    corpus = []
+    body_df = df_input.reset_index(drop = True)
+    body_df['word_count'] = body_df['body'].apply(lambda x: len(str(x).split(" ")))
+    ds_count = len(body_df.word_count)
+
+    for i in range(0, ds_count):
+
+        # Remove punctuation
+        text = re.sub('[^a-zA-Z]', ' ', str(body_df['body'][i]))
+        
+        # Convert to lowercase
+        text = text.lower()
+        
+        # Remove tags
+        text=re.sub("&lt;/?.*?&gt;"," &lt;&gt; ",text)
+        
+        # Remove special characters and digits
+        text=re.sub("(\\d|\\W)+"," ",text)
+        
+        # Convert to list from string
+        text = text.split()
+        
+        # Stemming
+        ps=PorterStemmer()
+        
+        # Lemmatisation
+        lem = WordNetLemmatizer()
+        text = [lem.lemmatize(word) for word in text if not word in  
+                stop_words] 
+        text = " ".join(text)
+        corpus.append(text)
+
+
+    cv=CountVectorizer(max_df=0.8,stop_words=stop_words, max_features=10000, ngram_range=(1,3))
+    X=cv.fit_transform(corpus)
+
+    return corpus
+
+# Convert most freq words to dataframe for plotting bar plot
+
+def most_common_keywords(corpus):
+
+    top_words = get_top_n_words(corpus, n=20)
+    top_df = pd.DataFrame(top_words)
+    top_df.columns=["Keyword", "Frequency"]
+
+    return top_df
+
+# Convert most freq bigrams to dataframe for plotting bar plot
+
+def most_common_bigrams(corpus):
+
+    top2_words = get_top_n2_words(corpus, n=20)
+    top2_df = pd.DataFrame(top2_words)
+    top2_df.columns=["Bi-gram", "Frequency"]
+    return top2_df
+
+# Convert most freq trigrams to dataframe for plotting bar plot
+
+def most_common_trigrams(corpus):
+    
+    top3_words = get_top_n3_words(corpus, n=20)
+    top3_df = pd.DataFrame(top3_words)
+    top3_df.columns=["Tri-gram", "Frequency"]
+    return top3_df
+
+#Function to download results as a CSV
 
 def download_link(object_to_download, download_filename, download_link_text):
 
@@ -32,7 +154,7 @@ def sleep_random(x,y):
 
 #Scrape reviews function 
 
-@st.cache(suppress_st_warning=True, allow_output_mutation=True)
+@st.cache(suppress_st_warning=True,allow_output_mutation=True)
 def scrape_trustpilot_reviews(url):
 
     # Trustpilot review page
@@ -119,8 +241,8 @@ st.write("Developed by [Eka Ventures](https://www.ekavc.com/)")
 st.sidebar.write("Enter the Trustpilot page to analyse")
 url = st.sidebar.text_input('Input Trustpilot URL:')
 run_button = st.sidebar.checkbox("Fetch Trustpilot Reviews")
-#st.sidebar.write("Choose the reviews you would like to analyse for Section 3")
-#reviews_of_interest = st.sidebar.multiselect("Rewiews to analyse:",('1','2','3','4','5'),['1','2','3','4','5'])
+st.sidebar.write("Choose the reviews you would like to analyse for Section 3")
+reviews_of_interest = st.sidebar.multiselect("Rewiews to analyse:",('1','2','3','4','5'),['1','2','3','4','5'])
 
 if run_button == True:
 
@@ -195,26 +317,18 @@ if run_button == True:
                     )
     st.plotly_chart(fig2)
     
-    #dataset1 = df2['rating'].astype(str)
-    #dataset2 = df2[df2['rating'].isin(reviews_of_interest)]
-    #dataset = dataset2[['created_at','body']]
-    #dataset = dataset[(dataset['body']!="")]
-    df_words = df2[['created_at','body']]
-
-
-
-    if st.button('Download Specific Reviews'):
-        tmp_download_link = download_link(dataset, 'Trustpilot_reviews4.csv', 'Click here to download your data!')
-        st.markdown(tmp_download_link, unsafe_allow_html=True)
-
+    dataset1 = df_download['rating'].astype(str)
+    dataset2 = df_download[df_download['rating'].isin(reviews_of_interest)]
+    dataset = dataset2[['date','body']]
 
     st.subheader("Section 3: Trustpilot Review Themes")
 
-    words = analyse_words(df_words)
-
+    words = analyse_words(dataset)
     keywords = most_common_keywords(words)
     bigrams = most_common_bigrams(words)
     trigrams = most_common_trigrams(words)
+
+
 
     fig3 = px.bar(keywords, 
                     x='Keyword', 
@@ -242,3 +356,4 @@ if run_button == True:
                     height = 600,)
 
     st.plotly_chart(fig5)
+
